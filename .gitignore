@@ -23,3 +23,7 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# NEAT training output
+models/checkpoints/
+models/generation/best_genome.pkl

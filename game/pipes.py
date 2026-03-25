@@ -1,12 +1,14 @@
 import random
+
 import pygame
-from .settings import PIPE_HEIGHTS, SCREEN_HEIGHT
+
+from .settings import PIPE_GAP, PIPE_HEIGHTS, SCREEN_HEIGHT
 
 
 def create_pipe(pipe_surface):
     random_pipe_pos = random.choice(PIPE_HEIGHTS)
     bottom_pipe = pipe_surface.get_rect(midtop=(700, random_pipe_pos))
-    top_pipe = pipe_surface.get_rect(midbottom=(700, random_pipe_pos - 300))
+    top_pipe = pipe_surface.get_rect(midbottom=(700, random_pipe_pos - PIPE_GAP))
     return bottom_pipe, top_pipe
 
 
@@ -25,13 +27,16 @@ def draw_pipes(screen, pipe_surface, pipes):
             screen.blit(flip_pipe, pipe)
 
 
-def check_pipe_score(pipes, bird_rect, scored_ids):
-    """Return points scored this frame and updated scored_ids set."""
+def check_pipe_score(pipes, bird_rect, speed):
+    """Return points scored this frame using frame-crossing detection.
+    No tracking set needed — scores on the exact frame a pipe clears the bird.
+    """
     points = 0
     for pipe in pipes:
-        pid = id(pipe)
-        if pid not in scored_ids and pipe.right < bird_rect.left:
-            scored_ids.add(pid)
-            if pipe.bottom >= SCREEN_HEIGHT:  # count bottom pipe only (avoid double)
-                points += 1
-    return points, scored_ids
+        if (
+            pipe.bottom >= SCREEN_HEIGHT
+            and pipe.right < bird_rect.left
+            and pipe.right >= bird_rect.left - speed
+        ):
+            points += 1
+    return points

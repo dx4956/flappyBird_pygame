@@ -1,32 +1,40 @@
+import json
 import random
 import sys
-import json
 from pathlib import Path
 
 import pygame
 
+from game.bird import bird_animation, check_collision, rotate_bird
+from game.pipes import check_pipe_score, create_pipe, draw_pipes, move_pipes
 from game.settings import (
-    SCREEN_WIDTH, SCREEN_HEIGHT,
-    GRAVITY, FLAP_STRENGTH,
-    BASE_PIPE_SPAWN_INTERVAL, BIRD_FLAP_INTERVAL,
-    FLOOR_SPEED, BASE_PIPE_SPEED,
-    DIFFICULTY_STEP, MAX_PIPE_SPEED, MIN_SPAWN_INTERVAL,
-    SHAKE_DURATION, SHAKE_INTENSITY,
+    BASE_PIPE_SPAWN_INTERVAL,
+    BASE_PIPE_SPEED,
     BG_SWITCH_EVERY,
+    BIRD_FLAP_INTERVAL,
+    DIFFICULTY_STEP,
+    FLAP_STRENGTH,
+    FLOOR_SPEED,
+    GRAVITY,
+    MAX_PIPE_SPEED,
+    MIN_SPAWN_INTERVAL,
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH,
+    SHAKE_DURATION,
+    SHAKE_INTENSITY,
 )
-from game.bird import rotate_bird, bird_animation, check_collision
-from game.pipes import create_pipe, move_pipes, draw_pipes, check_pipe_score
-from game.ui import draw_floor, score_display, update_score, ScorePopup
+from game.ui import ScorePopup, draw_floor, score_display, update_score
 
 ASSETS = Path(__file__).parent / "assets"
 IMAGES = ASSETS / "images"
-FONTS  = ASSETS / "fonts"
+FONTS = ASSETS / "fonts"
 SOUNDS = ASSETS / "sounds"
-HIGHSCORE_FILE = Path(__file__).parent / "highscore.json"
+HIGHSCORE_FILE = Path(__file__).parent / "gamedata" / "highscore.json"
 
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
+
 
 def load_high_score():
     if HIGHSCORE_FILE.exists():
@@ -38,18 +46,22 @@ def load_high_score():
 
 
 def save_high_score(score):
+    HIGHSCORE_FILE.parent.mkdir(parents=True, exist_ok=True)
     HIGHSCORE_FILE.write_text(json.dumps({"high_score": score}))
+
 
 # ---------------------------------------------------------------------------
 # Difficulty
 # ---------------------------------------------------------------------------
 
+
 def get_difficulty(score):
     """Return (pipe_speed, spawn_interval_ms) for the current score."""
     level = score // DIFFICULTY_STEP
-    speed    = min(BASE_PIPE_SPEED + level, MAX_PIPE_SPEED)
+    speed = min(BASE_PIPE_SPEED + level, MAX_PIPE_SPEED)
     interval = max(BASE_PIPE_SPAWN_INTERVAL - level * 50, MIN_SPAWN_INTERVAL)
     return speed, interval
+
 
 # ---------------------------------------------------------------------------
 # Pygame init
@@ -58,25 +70,37 @@ def get_difficulty(score):
 pygame.mixer.pre_init(frequency=44100, size=16, channels=1, buffer=512)
 pygame.init()
 
-screen      = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 draw_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))  # shake canvas
 pygame.display.set_caption("Flappy Bird")
-clock      = pygame.time.Clock()
-game_font  = pygame.font.Font(FONTS / "04B_19.TTF", 40)
+clock = pygame.time.Clock()
+game_font = pygame.font.Font(FONTS / "04B_19.TTF", 40)
 small_font = pygame.font.Font(FONTS / "04B_19.TTF", 26)
 
 # ---------------------------------------------------------------------------
 # Assets
 # ---------------------------------------------------------------------------
 
-bg_day   = pygame.transform.scale2x(pygame.image.load(IMAGES / "background-day.png").convert())
-bg_night = pygame.transform.scale2x(pygame.image.load(IMAGES / "background-night.png").convert())
-floor_surface = pygame.transform.scale2x(pygame.image.load(IMAGES / "base.png").convert())
+bg_day = pygame.transform.scale2x(
+    pygame.image.load(IMAGES / "background-day.png").convert()
+)
+bg_night = pygame.transform.scale2x(
+    pygame.image.load(IMAGES / "background-night.png").convert()
+)
+floor_surface = pygame.transform.scale2x(
+    pygame.image.load(IMAGES / "base.png").convert()
+)
 
 bird_frames = [
-    pygame.transform.scale2x(pygame.image.load(IMAGES / "bluebird-downflap.png").convert_alpha()),
-    pygame.transform.scale2x(pygame.image.load(IMAGES / "bluebird-midflap.png").convert_alpha()),
-    pygame.transform.scale2x(pygame.image.load(IMAGES / "bluebird-upflap.png").convert_alpha()),
+    pygame.transform.scale2x(
+        pygame.image.load(IMAGES / "bluebird-downflap.png").convert_alpha()
+    ),
+    pygame.transform.scale2x(
+        pygame.image.load(IMAGES / "bluebird-midflap.png").convert_alpha()
+    ),
+    pygame.transform.scale2x(
+        pygame.image.load(IMAGES / "bluebird-upflap.png").convert_alpha()
+    ),
 ]
 
 pipe_surface = pygame.transform.scale2x(pygame.image.load(IMAGES / "pipe-green.png"))
@@ -86,7 +110,7 @@ game_over_surface = pygame.transform.scale2x(
 )
 game_over_rect = game_over_surface.get_rect(center=(288, 512))
 
-flap_sound  = pygame.mixer.Sound(SOUNDS / "sfx_wing.wav")
+flap_sound = pygame.mixer.Sound(SOUNDS / "sfx_wing.wav")
 death_sound = pygame.mixer.Sound(SOUNDS / "sfx_hit.wav")
 score_sound = pygame.mixer.Sound(SOUNDS / "sfx_point.wav")
 
@@ -95,33 +119,34 @@ score_sound = pygame.mixer.Sound(SOUNDS / "sfx_point.wav")
 # ---------------------------------------------------------------------------
 
 SPAWNPIPE = pygame.USEREVENT
-BIRDFLAP  = pygame.USEREVENT + 1
+BIRDFLAP = pygame.USEREVENT + 1
 pygame.time.set_timer(SPAWNPIPE, BASE_PIPE_SPAWN_INTERVAL)
-pygame.time.set_timer(BIRDFLAP,  BIRD_FLAP_INTERVAL)
+pygame.time.set_timer(BIRDFLAP, BIRD_FLAP_INTERVAL)
 
 # ---------------------------------------------------------------------------
 # Game state helpers
 # ---------------------------------------------------------------------------
 
+
 def new_game():
     return {
-        "state":          "menu",   # menu | playing | game_over
-        "bird_movement":  0,
-        "bird_index":     0,
-        "bird_surface":   bird_frames[0],
-        "bird_rect":      bird_frames[0].get_rect(center=(100, 512)),
-        "pipe_list":      [],
-        "scored_ids":     set(),
-        "score":          0,
-        "floor_x_pos":    0,
-        "shake_frames":   0,
-        "score_popups":   [],
-        "pipe_speed":     BASE_PIPE_SPEED,
+        "state": "menu",  # menu | playing | game_over
+        "bird_movement": 0,
+        "bird_index": 0,
+        "bird_surface": bird_frames[0],
+        "bird_rect": bird_frames[0].get_rect(center=(100, 512)),
+        "pipe_list": [],
+        "score": 0,
+        "floor_x_pos": 0,
+        "shake_frames": 0,
+        "score_popups": [],
+        "pipe_speed": BASE_PIPE_SPEED,
         "spawn_interval": BASE_PIPE_SPAWN_INTERVAL,
-        "is_night":       False,
+        "is_night": False,
     }
 
-g          = new_game()
+
+g = new_game()
 high_score = load_high_score()
 
 # ---------------------------------------------------------------------------
@@ -129,7 +154,6 @@ high_score = load_high_score()
 # ---------------------------------------------------------------------------
 
 while True:
-
     # --- Events -----------------------------------------------------------
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -169,10 +193,8 @@ while True:
 
         g["pipe_list"] = move_pipes(g["pipe_list"], g["pipe_speed"])
 
-        # Score
-        points, g["scored_ids"] = check_pipe_score(
-            g["pipe_list"], g["bird_rect"], g["scored_ids"]
-        )
+        # Score — frame-crossing detection, no more id() bug
+        points = check_pipe_score(g["pipe_list"], g["bird_rect"], g["pipe_speed"])
         if points:
             g["score"] += points
             score_sound.play()
@@ -190,9 +212,9 @@ while True:
 
         # Collision
         if not check_collision(g["bird_rect"], g["pipe_list"], death_sound):
-            g["state"]        = "game_over"
+            g["state"] = "game_over"
             g["shake_frames"] = SHAKE_DURATION
-            high_score        = update_score(g["score"], high_score)
+            high_score = update_score(g["score"], high_score)
             save_high_score(high_score)
 
     # --- Screen shake offset ----------------------------------------------
